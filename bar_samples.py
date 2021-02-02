@@ -5,14 +5,6 @@ from utils_filters import jma_filter_update, jma_starting_state, MAD, JMA
 
 
 
-class Bar:
-    def __init__(self):
-
-
-    def update(self):
-
-
-
 def tick_rule(latest_price: float, prev_price: float, last_side: int=0) -> int:
     try:
         diff = latest_price - prev_price
@@ -201,11 +193,12 @@ def filter_tick(tick: dict, mad_filter: MAD, jma_filter: JMA) -> dict:
 
 
 def build_bars(ticks_df: pd.DataFrame, thresh: dict) -> tuple:
-    bars = []
     ticks = []
-    bar_state = reset_state(thresh)
     mad_filter = MAD(thresh['mad_value_winlen'], thresh['mad_deviation_winlen'], thresh['mad_k'])
     jma_filter = JMA(ticks_df['price'].values[0], thresh['jma_winlen'], thresh['jma_power'])
+    # bars = []
+    # bar_state = reset_state(thresh)
+    bar_actor = Bar(thresh)
 
     for t in ticks_df.itertuples():
         tick_raw = {
@@ -220,8 +213,19 @@ def build_bars(ticks_df: pd.DataFrame, thresh: dict) -> tuple:
 
         if tick['status'] == 'clean_open_market':
         # if tick['status'].startswith('clean'):
-            bars, bar_state = update_bar_state(tick, bar_state, bars, thresh)
+            bar_actor.update(tick)
+            # bars, bar_state = update_bar_state(tick, bar_state, bars, thresh)
 
         ticks.append(tick)
+    
+    return bar_actor.bars, ticks
 
-    return bars, ticks
+
+class Bar:
+    def __init__(self, thresh: dict):
+        self.thresh = thresh
+        self.state = reset_state(thresh)
+        self.bars = []
+
+    def update(self, tick: dict):
+        self.bars, self.state = update_bar_state(tick, self.state, self.bars, self.thresh)

@@ -8,6 +8,7 @@ from bar_labels import label_bars
 from utils_filters import jma_filter_df
 
 
+
 def process_bar_dates(bar_dates: list, imbalance_thresh: float) -> pd.DataFrame:
     results = []
     for date_d in bar_dates:
@@ -119,7 +120,7 @@ def bar_workflow(symbol: str, date: str, thresh: dict, add_label: bool=True) -> 
     
     # get ticks
     ticks_df = fetch_date_df(symbol, date, tick_type='trades')
-    
+
     # sample bars
     bars, filtered_ticks = build_bars(ticks_df, thresh)
     
@@ -144,10 +145,9 @@ def bar_workflow(symbol: str, date: str, thresh: dict, add_label: bool=True) -> 
     bar_result = {
         'symbol': symbol,
         'date': date,
-        'bars': bars,
         'thresh': thresh,
-        'ticks_df': ticks_df,
-        'ft_ticks_df': ft_ticks_df,
+        'bars': bars,
+        'ticks_df': ft_ticks_df,
         }
 
     return bar_result
