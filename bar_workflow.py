@@ -1,11 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import numpy as np
 import pandas as pd
 from polygon_s3 import fetch_date_df
 from polygon_ds import get_dates_df
-from bar_samples import build_bars
+from utils_filters import TickRule, MADFilter, JMAFilter, jma_filter_df
+from bar_samples import BarSampler
 from bar_labels import label_bars
-from utils_filters import jma_filter_df
 
 
 
@@ -109,19 +109,77 @@ def fill_gaps_dates(bar_dates: list, fill_col: str) -> pd.DataFrame:
     return pd.DataFrame(stacked)
 
 
+def filter_tick(tick: dict, mad_filter: MADFilter, jma_filter: JMAFilter, 
+                tick_rule: TickRule, bar_sampler: BarSampler) -> tuple:
+
+    tick['nyc_time'] = tick['sip_dt'].tz_localize('UTC').tz_convert('America/New_York')
+
+    mad_filter.update(next_value=tick['price'])  # update mad filter
+    
+    irregular_conditions = [2, 5, 7, 10, 13, 15, 16, 20, 21, 22, 29, 33, 38, 52, 53]
+
+    if tick['volume'] < 1:  # zero volume/size tick
+        tick['status'] = 'zero_volume'
+    elif pd.Series(tick['conditions']).isin(irregular_conditions).any():  # 'irrgular' tick condition
+        tick['status'] = 'irregular_condition'
+    elif abs(tick['sip_dt'] - tick['exchange_dt']) > pd.to_timedelta(2, unit='S'):  # large ts deltas
+        tick['status'] = 'ts_delta'
+    elif mad_filter.status != 'mad_clean':  # MAD filter outlier
+        tick['status'] = 'mad_outlier'
+    else:  # 'clean' tick
+        tick['status'] = 'clean'
+        tick['jma'] = jma_filter.update(next_value=tick['price'])  # update jma filter
+        tick['side'] = tick_rule.update(next_price=tick['price'])  # update tick rule
+        
+        if tick['nyc_time'].to_pydatetime().time() < time(hour=9, minute=30):
+            tick['status'] = 'clean_pre_market'
+        elif tick['nyc_time'].hour >= 16:
+            tick['status'] = 'clean_after_hours'
+        else:
+            tick['status'] = 'clean_open_market'
+            bar_sampler.update(tick)
+
+    tick.pop('sip_dt', None)
+    tick.pop('exchange_dt', None)
+    tick.pop('conditions', None)
+
+    return tick
+
+
+def build_bars(ticks_df: pd.DataFrame, thresh: dict) -> tuple:
+
+    mad_filter = MADFilter(thresh['mad_value_winlen'], thresh['mad_deviation_winlen'], thresh['mad_k'])
+    jma_filter = JMAFilter(thresh['jma_winlen'], thresh['jma_power'])
+    tick_rule = TickRule()
+    bar_sampler = BarSampler(thresh)
+    ft_ticks = []
+    for row in ticks_df.itertuples():
+        tick = {
+            'sip_dt': row.sip_dt,
+            'exchange_dt': row.exchange_dt,
+            'price': row.price,
+            'volume': row.size,
+            'conditions': row.conditions,
+            'status': 'raw',
+        }
+        ft_tick = filter_tick(tick, mad_filter, jma_filter, tick_rule, bar_sampler)
+        ft_ticks.append(ft_tick)
+
+    return bar_sampler.bars, pd.DataFrame(ft_ticks)
+
+
 def bar_workflow(symbol: str, date: str, thresh: dict, add_label: bool=True) -> dict:
     
     # get ticks
     ticks_df = fetch_date_df(symbol, date, tick_type='trades')
 
     # sample bars
-    bars, ticks = build_bars(ticks_df, thresh)
-    ticks_df = pd.DataFrame(ticks)
+    bars, ft_tdf = build_bars(ticks_df, thresh)
 
     if add_label:
         bars = label_bars(
             bars=bars,
-            ticks_df=ticks_df[ticks_df['status'].str.startswith('clean')],
+            ticks_df=ft_tdf[ft_tdf['status'].str.startswith('clean_open_market')],
             risk_level=thresh['renko_size'],
             horizon_mins=thresh['max_duration_td'].total_seconds() / 60,
             reward_ratios=thresh['label_reward_ratios'],
@@ -132,7 +190,7 @@ def bar_workflow(symbol: str, date: str, thresh: dict, add_label: bool=True) -> 
         'date': date,
         'thresh': thresh,
         'bars': bars,
-        'ticks_df': ticks_df,
+        'ticks_df': ft_tdf,
         }
 
     return bar_date

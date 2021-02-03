@@ -32,18 +32,18 @@ def get_tb_outcome(reward_ratio: float, risk_level: float, side: str, label_pric
     if side=='long':
         if goal=='profit':
             target_price = first_price + (risk_level * reward_ratio)
-            target_at = label_prices[label_prices[price_col] >= target_price].min()['date_time']
+            target_at = label_prices[label_prices[price_col] >= target_price].min()['nyc_time']
         elif goal=='stop':
             target_price = first_price - risk_level
-            target_at = label_prices[label_prices[price_col] < target_price].min()['date_time']
+            target_at = label_prices[label_prices[price_col] < target_price].min()['nyc_time']
             reward_ratio = -1
     elif side=='short':
         if goal=='profit':
             target_price = first_price - (risk_level * reward_ratio)
-            target_at = label_prices[label_prices[price_col] <= target_price].min()['date_time']
+            target_at = label_prices[label_prices[price_col] <= target_price].min()['nyc_time']
         elif goal=='stop':
             target_price = first_price + risk_level
-            target_at = label_prices[label_prices[price_col] > target_price].min()['date_time']
+            target_at = label_prices[label_prices[price_col] > target_price].min()['nyc_time']
             reward_ratio = -1
 
         reward_ratio = reward_ratio * -1
@@ -149,7 +149,7 @@ def get_concurrent_stats(lbars_df: pd.DataFrame) -> dict:
 def get_label_ticks(ticks_df: pd.DataFrame, label_start_at: pd._libs.tslibs.timestamps.Timestamp, horizon_mins: int) -> pd.DataFrame:
     delayed_label_start_at = label_start_at + pd.Timedelta(value=3, unit='seconds')  # inference+network latency compensation
     label_end_at = label_start_at + pd.Timedelta(value=horizon_mins, unit='minutes')
-    label_prices = ticks_df.loc[(ticks_df['date_time'] >= delayed_label_start_at) & (ticks_df['date_time'] < label_end_at)]
+    label_prices = ticks_df.loc[(ticks_df['nyc_time'] >= delayed_label_start_at) & (ticks_df['nyc_time'] < label_end_at)]
     return label_prices,  label_end_at
 
 

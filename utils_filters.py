@@ -88,13 +88,17 @@ class MADFilter:
 
 class JMAFilter:
     
-    def __init__(self, start_value: float, winlen: int=10, power: int=1, phase: float=0.0):
-        self.state = jma_starting_state(start_value)
+    def __init__(self, winlen: int=10, power: int=1, phase: float=0.0):
+        self.state = None
         self.winlen = winlen
         self.power = power
         self.phase = phase
 
     def update(self, next_value) -> float:
+
+        if self.state is None:
+            self.state = jma_starting_state(next_value)
+    
         self.state = jma_filter_update(
             value=next_value,
             state=self.state,
@@ -134,7 +138,6 @@ def jma_filter_update(value: float, state: dict, winlen: int, power: float, phas
         'e2': e2_next,
         'jma': jma_next,
         }
-
     return state_next
 
 
@@ -212,6 +215,7 @@ def supersmoother(x: list, n: int=10) -> np.ndarray:
 
 def tick_df_fix(ticks_df: pd.DataFrame) -> pd.DataFrame:
     t1df = ticks_df.set_index('sip_dt').tz_localize('UTC').tz_convert('America/New_York')
-    t1df = t1df.between_time('9:00', '16:00').reset_index()
+    t1df = t1df.between_time('9:30', '16:00').reset_index()
     t1df = t1df.drop(columns=['exchange_dt'])
-    return t1df.rename(columns={"sip_dt": "date_time"})
+    t1df = t1df.rename(columns={"sip_dt": "nyc_time"})
+    return t1df

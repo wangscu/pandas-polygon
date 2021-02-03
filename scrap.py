@@ -589,3 +589,58 @@ def time_bars(ticks_df: pd.DataFrame, date: str, freq: str='15min') -> list:
         bars.append(bar)
 
     return bars
+
+
+
+def state_to_bar(state: dict) -> dict:
+    
+    bar = {}
+    if state['stat']['tick_count'] == 0:
+        return bar
+
+    bar['bar_trigger'] = state['bar_trigger']
+    # time
+    bar['open_at'] = state['trades']['nyc_time'][0]
+    bar['close_at'] = state['trades']['nyc_time'][-1]
+    bar['duration_td'] = bar['close_at'] - bar['open_at']
+    # price
+    bar['price_open'] = state['trades']['price'][0]
+    bar['price_close'] = state['trades']['price'][-1]
+    bar['price_low'] = state['stat']['price_min']
+    bar['price_high'] = state['stat']['price_max']
+    bar['price_range'] = state['stat']['price_range']
+    bar['price_return'] = state['stat']['price_return']
+    # volume weighted price
+    dsw = DescrStatsW(data=state['trades']['price'], weights=state['trades']['volume'])
+    qtiles = dsw.quantile(probs=[0.1, 0.5, 0.9]).values
+    bar['price_wq10'] = qtiles[0]
+    bar['price_wq50'] = qtiles[1]
+    bar['price_wq90'] = qtiles[2]
+    bar['price_wq_range'] = bar['price_wq90'] - bar['price_wq10']
+    bar['price_wmean'] = dsw.mean
+    bar['price_wstd'] = dsw.std
+    # jma
+    bar['jma_open'] = state['trades']['jma'][0]
+    bar['jma_close'] = state['trades']['jma'][-1]
+    bar['jma_low'] = state['stat']['jma_min']
+    bar['jma_high'] = state['stat']['jma_max']
+    bar['jma_range'] = state['stat']['jma_range']
+    bar['jma_return'] = state['stat']['jma_return']
+    # volume weighted jma
+    dsw = DescrStatsW(data=state['trades']['jma'], weights=state['trades']['volume'])
+    qtiles = dsw.quantile(probs=[0.1, 0.5, 0.9]).values
+    bar['jma_wq10'] = qtiles[0]
+    bar['jma_wq50'] = qtiles[1]
+    bar['jma_wq90'] = qtiles[2]
+    bar['jma_wq_range'] = bar['jma_wq90'] - bar['jma_wq10']
+    bar['jma_wmean'] = dsw.mean
+    bar['jma_wstd'] = dsw.std
+    # tick/vol/dollar/imbalance
+    bar['tick_count'] = state['stat']['tick_count']
+    bar['volume'] = state['stat']['volume']
+    bar['dollars'] = state['stat']['dollars']
+    bar['tick_imbalance'] = state['stat']['tick_imbalance']
+    bar['volume_imbalance'] = state['stat']['volume_imbalance']
+    bar['dollar_imbalance'] = state['stat']['dollar_imbalance']
+
+    return bar
