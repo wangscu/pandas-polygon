@@ -1,6 +1,6 @@
 import statsmodels.api as sm
 import pandas as pd
-from tqdm import tqdm
+
 
 # example loss function
 # long-FP: high
@@ -72,7 +72,7 @@ def triple_barrier_outcomes(label_prices: pd.DataFrame, risk_level: float, rewar
 
 def signed_outcomes_to_label(outcomes: pd.DataFrame, label_end_at: pd._libs.tslibs.timestamps.Timestamp) -> dict:
     outcomes = outcomes.dropna()
-    if outcomes.shape[0] == 0: # no outcomes
+    if outcomes.shape[0] == 0:  # no outcomes
         # print('neutral')
         label = [{
                     'label_side': 'neutral',
@@ -80,18 +80,18 @@ def signed_outcomes_to_label(outcomes: pd.DataFrame, label_end_at: pd._libs.tsli
                     'label_rrr': 0,
                     'label_outcome_at': label_end_at,
                 }]
-    elif outcomes[outcomes['label_outcome']=='stop'].shape[0] > 0: # stop-loss found
-        idx = outcomes[outcomes['label_outcome']=='stop'].index.values[0] # index of stop
-        if idx == 0: # stop-loss is first outcome
+    elif outcomes[outcomes['label_outcome']=='stop'].shape[0] > 0:  # stop-loss found
+        idx = outcomes[outcomes['label_outcome']=='stop'].index.values[0]  # index of stop
+        if idx == 0:  # stop-loss is first outcome
             # print('stop')
             label = outcomes.head(1).to_dict(orient='records')
         elif idx > 0:
             # print('profit before stop')
-            multi_label = outcomes[outcomes.index < idx] # profit outcomes before stop-out
+            multi_label = outcomes[outcomes.index < idx]  # profit outcomes before stop-out
             label = multi_label[multi_label['label_rrr'].abs()==multi_label['label_rrr'].abs().max()].to_dict(orient='records')
     else:
         # print('profit')
-        label = outcomes[outcomes['label_rrr'].abs()==outcomes['label_rrr'].abs().max()].to_dict(orient='records') # get max reward
+        label = outcomes[outcomes['label_rrr'].abs()==outcomes['label_rrr'].abs().max()].to_dict(orient='records')  # get max reward
     return label[0]
 
 
@@ -110,6 +110,7 @@ def outcomes_to_label(outcomes: pd.DataFrame, label_end_at: pd._libs.tslibs.time
             label_end_at = max(long_label['label_outcome_at'], short_label['label_outcome_at'])
         except:
             label_end_at = label_end_at
+
         label = {
             'label_side': 'neutral',
             'label_outcome': 'neutral',
@@ -118,6 +119,7 @@ def outcomes_to_label(outcomes: pd.DataFrame, label_end_at: pd._libs.tslibs.time
             }
     else:
         label = {'label_outcome': 'unknown'}
+
     return label
 
 
@@ -145,7 +147,7 @@ def get_concurrent_stats(lbars_df: pd.DataFrame) -> dict:
 
 
 def get_label_ticks(ticks_df: pd.DataFrame, label_start_at: pd._libs.tslibs.timestamps.Timestamp, horizon_mins: int) -> pd.DataFrame:
-    delayed_label_start_at = label_start_at + pd.Timedelta(value=3, unit='seconds') # inference+network latency compensation
+    delayed_label_start_at = label_start_at + pd.Timedelta(value=3, unit='seconds')  # inference+network latency compensation
     label_end_at = label_start_at + pd.Timedelta(value=horizon_mins, unit='minutes')
     label_prices = ticks_df.loc[(ticks_df['date_time'] >= delayed_label_start_at) & (ticks_df['date_time'] < label_end_at)]
     return label_prices,  label_end_at

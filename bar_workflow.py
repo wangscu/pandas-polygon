@@ -1,4 +1,4 @@
-import datetime as dt
+from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 from polygon_s3 import fetch_date_df
@@ -9,33 +9,26 @@ from utils_filters import jma_filter_df
 
 
 
-def process_bar_dates(bar_dates: list, imbalance_thresh: float) -> pd.DataFrame:
+def process_bar_dates(bar_dates: list, imbalance_thresh: float=0.95) -> pd.DataFrame:
+    
     results = []
     for date_d in bar_dates:
-        imbalances = []
-        durations = []
-        ranges = []
-        for bar in date_d['bars']:
-            imbalances.append(bar['volume_imbalance'])
-            durations.append(bar['duration_min'])
-            ranges.append(bar['price_range'])
-
+        bdf = pd.DataFrame(date_d['bars'])
         results.append({
             'date': date_d['date'], 
-            'bar_count': len(date_d['bars']), 
-            'imbalance_thresh': pd.Series(imbalances).quantile(q=imbalance_thresh),
-            'duration_min_mean': pd.Series(durations).mean(),
-            'duration_min_median': pd.Series(durations).median(),
-            'price_range_mean': pd.Series(ranges).mean(),
-            'price_range_median': pd.Series(ranges).median(),
+            'bar_count': len(date_d['bars']),
+            'imbalance_thresh': bdf.volume_imbalance.quantile(q=imbalance_thresh),
+            'duration_min_mean': bdf.duration_min.mean(),
+            'duration_min_median': bdf.duration_min.median(),
+            'price_range_mean': bdf.price_range.mean(),
+            'price_range_median': bdf.price_range.median(),
             'thresh': date_d['thresh']
             })
-
     daily_bar_stats_df = jma_filter_df(pd.DataFrame(results), 'imbalance_thresh', length=5, power=1)
     daily_bar_stats_df.loc[:, 'imbalance_thresh_jma_lag'] = daily_bar_stats_df['imbalance_thresh_jma'].shift(1)
     daily_bar_stats_df = daily_bar_stats_df.dropna()
     
-    return daily_join_df
+    return daily_bar_stats_df
 
 
 def stacked_df_stats(stacked_df: pd.DataFrame) -> pd.DataFrame:
@@ -57,7 +50,7 @@ def stacked_df_stats(stacked_df: pd.DataFrame) -> pd.DataFrame:
 
 def get_symbol_vol_filter(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
     # get exta 10 days
-    adj_start_date = (dt.datetime.fromisoformat(start_date) - dt.timedelta(days=10)).date().isoformat()
+    adj_start_date = (datetime.fromisoformat(start_date) - timedelta(days=10)).date().isoformat()
     # get market daily from pyarrow dataset
     df = get_dates_df(symbol='market', tick_type='daily', start_date=adj_start_date, end_date=end_date, source='local')
     df = df.loc[df['symbol'] == symbol].reset_index(drop=True)
@@ -79,8 +72,8 @@ def fill_gap(bar_1: dict, bar_2: dict, renko_size: float, fill_col: str) -> dict
     fill_values.insert(-1, bar_2[fill_col])
     fill_values.insert(-1, bar_2[fill_col])
     fill_dt = pd.date_range(
-        start=bar_1['close_at'] + dt.timedelta(hours=1),
-        end=bar_2['open_at'] - dt.timedelta(hours=1),
+        start=bar_1['close_at'] + timedelta(hours=1),
+        end=bar_2['open_at'] - timedelta(hours=1),
         periods=num_steps + 2,
         )
     fill_dict = {
@@ -122,35 +115,27 @@ def bar_workflow(symbol: str, date: str, thresh: dict, add_label: bool=True) -> 
     ticks_df = fetch_date_df(symbol, date, tick_type='trades')
 
     # sample bars
-    bars, filtered_ticks = build_bars(ticks_df, thresh)
-    
-    # filter market hours
-    # ticks_df.loc[:, 'nyc_dt'] = ticks_df['sip_dt'].dt.tz_localize('UTC').dt.tz_convert('America/New_York')
-    # ticks_df = ticks_df.set_index('nyc_dt').between_time('09:30:00', '16:00:00').reset_index()
-    
-    # clean ticks
-    ft_ticks_df = pd.DataFrame(filtered_ticks)
-    ft_ticks_df['price_clean'] = ft_ticks_df['price']
-    ft_ticks_df.loc[ft_ticks_df['status'].str.startswith('clean'), 'price_clean'] = None
+    bars, ticks = build_bars(ticks_df, thresh)
+    ticks_df = pd.DataFrame(ticks)
 
     if add_label:
         bars = label_bars(
             bars=bars,
-            ticks_df=ft_ticks_df.loc[ft_ticks_df['status'].str.startswith('clean'), :],
+            ticks_df=ticks_df[ticks_df['status'].str.startswith('clean')],
             risk_level=thresh['renko_size'],
             horizon_mins=thresh['max_duration_td'].total_seconds() / 60,
             reward_ratios=thresh['label_reward_ratios'],
             )
 
-    bar_result = {
+    bar_date = {
         'symbol': symbol,
         'date': date,
         'thresh': thresh,
         'bars': bars,
-        'ticks_df': ft_ticks_df,
+        'ticks_df': ticks_df,
         }
 
-    return bar_result
+    return bar_date
 
 
 def bar_dates_workflow(symbol: str, start_date: str, end_date: str, thresh: dict,
@@ -160,6 +145,7 @@ def bar_dates_workflow(symbol: str, start_date: str, end_date: str, thresh: dict
     bar_dates = []
     if ray_on:
         import ray
+        ray.init(dashboard_port=1111, ignore_reinit_error=True)
         bar_workflow_ray = ray.remote(bar_workflow)
 
     for row in daily_stats_df.itertuples():
@@ -169,14 +155,13 @@ def bar_dates_workflow(symbol: str, start_date: str, end_date: str, thresh: dict
             thresh.update({'renko_size': rs})
 
         if ray_on:
-            bars = bar_workflow_ray.remote(symbol, row.date, thresh, add_label)
+            bar_date = bar_workflow_ray.remote(symbol, row.date, thresh, add_label)
         else:
-            bars = bar_workflow(symbol, row.date, thresh, add_label)
+            bar_date = bar_workflow(symbol, row.date, thresh, add_label)
 
-        bar_dates.append(bars)
+        bar_dates.append(bar_date)
 
     if ray_on:
         bar_dates = ray.get(bar_dates)
     
-    # stacked_df = fill_gaps_dates(bar_dates, fill_col='jma_wmean')
     return bar_dates
