@@ -26,7 +26,6 @@ dependencies:
   - ipdb
   - jupyterlab < 3.0  
   - jupyterlab-git
-  - qgrid
   - nbdime
   - matplotlib
   - bokeh

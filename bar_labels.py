@@ -165,7 +165,7 @@ def label_bars(bars: list, ticks_df: pd.DataFrame, risk_level: float, horizon_mi
             print('Dropping label, less then 5min from bar close_at:', row['close_at'])
             continue
 
-        if len(label_prices) < 30:
+        if len(label_prices) < 33:
             print('Dropping label, only', len(label_prices['price']), 'trades;' 'start at:', row['close_at'])
             continue
 

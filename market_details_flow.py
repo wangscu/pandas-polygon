@@ -9,6 +9,8 @@ from polygon_rest_api import get_ticker_details
 # setup results handler
 result_filename = "{task_full_name}.prefect"
 
+result_store = LocalResult(dir='/Users/bobcolner/QuantClarity/pandas-polygon/data', location=result_filename)
+
 
 @task(checkpoint=True, target=result_filename)
 def symbol_details_task(symbol: str) -> dict:
@@ -23,13 +25,13 @@ def reduce_list(dict_list:list) -> pd.DataFrame:
     return pd.DataFrame(dict_list_nona)
 
 
-result_store = LocalResult(dir='/Users/bobcolner/QuantClarity/pandas-polygon/data', location=result_filename)
-
 def get_flow():
+
     with Flow(name="symbol-details-flow", result=result_store) as flow:
         symbols = Parameter('symbols', default=['GLD','SPY'])
         details_list = symbol_details_task.map(symbol=symbols)
         details_df = reduce_list(details_list)
+
     return flow
 
 

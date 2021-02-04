@@ -3,6 +3,7 @@ from bar_features import trades_to_bar
 
 
 def reset_state(thresh: dict={}) -> dict:
+
     state = {}    
     state['thresh'] = thresh
     state['stat'] = {}
@@ -31,6 +32,7 @@ def reset_state(thresh: dict={}) -> dict:
     state['trades']['jma'] = []
     # trigger status
     state['bar_trigger'] = 'waiting'
+
     return state
 
 
@@ -93,6 +95,7 @@ def check_bar_thresholds(state: dict) -> dict:
 
 
 def update_bar_state(tick: dict, state: dict, bars: list=[], thresh: dict={}) -> tuple:
+
     # append tick
     state['trades']['nyc_time'].append(tick['nyc_time'])
     state['trades']['price'].append(tick['price'])
@@ -123,8 +126,7 @@ def update_bar_state(tick: dict, state: dict, bars: list=[], thresh: dict={}) ->
     state = check_bar_thresholds(state)
 
     if state['bar_trigger'] != 'waiting':
-#         new_bar = state_to_bar(state)
-        new_bar = trades_to_bar(ticks=state['trades'])
+        new_bar = trades_to_bar(state['trades'], state['bar_trigger'])
         bars.append(new_bar)
         state = reset_state(thresh)
     else:
@@ -135,10 +137,11 @@ def update_bar_state(tick: dict, state: dict, bars: list=[], thresh: dict={}) ->
 
 class BarSampler:
     
-    def __init__(self, thresh: dict):
+    def __init__(self, thresh: dict, bars: list=[]):
         self.state = reset_state(thresh)
-        self.bars = []
+        self.bars = bars
 
-    def update(self, tick: dict):
+    def update(self, tick: dict) -> dict:
         self.bars, self.state, new_bar = update_bar_state(tick, self.state, self.bars, self.state['thresh'])
+
         return new_bar

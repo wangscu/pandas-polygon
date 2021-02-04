@@ -3,12 +3,12 @@ from statsmodels.stats.weightstats import DescrStatsW
 
 
 
-def trades_to_bar(ticks) -> dict:
+def trades_to_bar(ticks, bar_trigger: str='fixed') -> dict:
     
     if type(ticks) != pd.DataFrame:
         ticks = pd.DataFrame(ticks)
     
-    bar = {}
+    bar = {'bar_trigger': bar_trigger}
     # time
     bar['open_at'] = ticks.nyc_time.iloc[0]
     bar['close_at'] = ticks.nyc_time.iloc[-1]
