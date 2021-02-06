@@ -4,13 +4,13 @@ import pandas as pd
 from polygon_s3 import fetch_date_df
 from polygon_ds import get_dates_df
 from utils_filters import TickRule, MADFilter, JMAFilter, jma_filter_df
-from bar_samples import BarSampler
+from bar_samples import BarSampler, update_bar_state, reset_state
 from bar_labels import label_bars
 
 
 
 def process_bar_dates(bar_dates: list, imbalance_thresh: float=0.95) -> pd.DataFrame:
-    
+
     results = []
     for date_d in bar_dates:
         bdf = pd.DataFrame(date_d['bars'])
@@ -27,7 +27,7 @@ def process_bar_dates(bar_dates: list, imbalance_thresh: float=0.95) -> pd.DataF
     daily_bar_stats_df = jma_filter_df(pd.DataFrame(results), 'imbalance_thresh', length=5, power=1)
     daily_bar_stats_df.loc[:, 'imbalance_thresh_jma_lag'] = daily_bar_stats_df['imbalance_thresh_jma'].shift(1)
     daily_bar_stats_df = daily_bar_stats_df.dropna()
-    
+
     return daily_bar_stats_df
 
 
@@ -109,12 +109,14 @@ def fill_gaps_dates(bar_dates: list, fill_col: str) -> pd.DataFrame:
     return pd.DataFrame(stacked)
 
 
-def filter_tick(tick: dict, mad_filter: MADFilter, jma_filter: JMAFilter, 
+def tick_filter_update(tick: dict, mad_filter: MADFilter, jma_filter: JMAFilter, 
                 tick_rule: TickRule, bar_sampler: BarSampler) -> dict:
-    
+    # bar_sampler: BarSampler
+
     irregular_conditions = [2, 5, 7, 10, 13, 15, 16, 20, 21, 22, 29, 33, 38, 52, 53]
 
-    tick['nyc_time'] = tick['sip_dt'].tz_localize('UTC').tz_convert('America/New_York')
+    tick['nyc_dt'] = tick['sip_dt'].tz_localize('UTC').tz_convert('America/New_York')
+    tick['utc_dt'] = tick['sip_dt']
 
     mad_filter.update(next_value=tick['price'])  # update mad filter
 
@@ -130,10 +132,10 @@ def filter_tick(tick: dict, mad_filter: MADFilter, jma_filter: JMAFilter,
         tick['status'] = 'clean'
         tick['jma'] = jma_filter.update(next_value=tick['price'])  # update jma filter
         tick['side'] = tick_rule.update(next_price=tick['price'])  # update tick rule
-        
-        if tick['nyc_time'].to_pydatetime().time() < time(hour=9, minute=30):
+        if tick['nyc_dt'].hour < 9:
+        # if tick['nyc_dt'].to_pydatetime().time() < time(hour=9, minute=30):
             tick['status'] = 'clean_pre_market'
-        elif tick['nyc_time'].hour >= 16:
+        elif tick['nyc_dt'].hour >= 16:
             tick['status'] = 'clean_after_hours'
         else:
             tick['status'] = 'clean_open_market'
@@ -162,35 +164,62 @@ def build_bars(ticks_df: pd.DataFrame, thresh: dict) -> tuple:
             'conditions': row.conditions,
             'status': 'raw',
         }
-        ft_tick = filter_tick(tick, mad_filter, jma_filter, tick_rule, bar_sampler)
+        ft_tick = tick_filter_update(tick, mad_filter, jma_filter, tick_rule, bar_sampler)
         ft_ticks.append(ft_tick)
 
     return bar_sampler.bars, pd.DataFrame(ft_ticks)
 
 
-def bar_workflow(symbol: str, date: str, thresh: dict, add_label: bool=True) -> dict:
-    
+def bar_workflow(symbol: str, date: str, thresh: dict, add_label: bool=False) -> dict:
     # get ticks
     ticks_df = fetch_date_df(symbol, date, tick_type='trades')
-
     # sample bars
-    bars, ft_tdf = build_bars(ticks_df, thresh)
-
+    bars, fticks_df = build_bars(ticks_df, thresh)
+    # label bars
     if add_label:
+        bars_labeled = bars
         bars = label_bars(
-            bars=bars,
-            ticks_df=ft_tdf[ft_tdf['status'].str.startswith('clean_open_market')],
+            bars=bars_labeled,
+            ticks_df=fticks_df[fticks_df['status'].str.startswith('clean_open')],
             risk_level=thresh['renko_size'],
             horizon_mins=thresh['max_duration_td'].total_seconds() / 60,
             reward_ratios=thresh['label_reward_ratios'],
             )
-
     bar_date = {
         'symbol': symbol,
         'date': date,
         'thresh': thresh,
         'bars': bars,
-        'ticks_df': ft_tdf,
+        'label_bars': bars_labeled,
+        'ticks_df': fticks_df,
         }
-
     return bar_date
+
+
+def bar_dates_workflow(symbol: str, start_date: str, end_date: str, thresh: dict, 
+    add_label: bool=False, ray_on: bool=False) -> list:
+
+    daily_stats_df = get_symbol_vol_filter(symbol, start_date, end_date)
+    bar_dates = []
+    if ray_on:
+        import ray
+        ray.init(dashboard_port=1111, ignore_reinit_error=True)
+        bar_workflow_ray = ray.remote(bar_workflow)
+
+    for row in daily_stats_df.itertuples():
+        if 'range_jma_lag' in daily_stats_df.columns:
+            rs = max(row.range_jma_lag / thresh['renko_range_frac'], row.vwap_jma_lag * 0.0005)  # force min
+            rs = min(rs, row.vwap_jma_lag * 0.005)  # enforce max
+            thresh.update({'renko_size': rs})
+
+        if ray_on:
+            bar_date = bar_workflow_ray.remote(symbol, row.date, thresh, add_label)
+        else:
+            bar_date = bar_workflow(symbol, row.date, thresh, add_label)
+
+        bar_dates.append(bar_date)
+
+    if ray_on:
+        bar_dates = ray.get(bar_dates)
+
+    return bar_dates

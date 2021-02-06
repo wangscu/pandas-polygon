@@ -1,5 +1,4 @@
-from bar_features import trades_to_bar
-
+from bar_features import trades_to_bar, state_to_bar
 
 
 def reset_state(thresh: dict={}) -> dict:
@@ -25,7 +24,7 @@ def reset_state(thresh: dict={}) -> dict:
     state['stat']['dollar_imbalance'] = 0
     # copy of tick events
     state['trades'] = {}
-    state['trades']['nyc_time'] = []
+    state['trades']['utc_dt'] = []
     state['trades']['price'] = []
     state['trades']['volume'] = []
     state['trades']['side'] = []
@@ -97,7 +96,7 @@ def check_bar_thresholds(state: dict) -> dict:
 def update_bar_state(tick: dict, state: dict, bars: list=[], thresh: dict={}) -> tuple:
 
     # append tick
-    state['trades']['nyc_time'].append(tick['nyc_time'])
+    state['trades']['utc_dt'].append(tick['utc_dt'])
     state['trades']['price'].append(tick['price'])
     state['trades']['volume'].append(tick['volume'])
     state['trades']['side'].append(tick['side'])
@@ -107,7 +106,7 @@ def update_bar_state(tick: dict, state: dict, bars: list=[], thresh: dict={}) ->
     state['stat']['volume_imbalance'] += (state['trades']['side'][-1] * state['trades']['volume'][-1])
     state['stat']['dollar_imbalance'] += (state['trades']['side'][-1] * state['trades']['volume'][-1] * state['trades']['price'][-1])
     # other
-    state['stat']['duration_td'] = state['trades']['nyc_time'][-1] - state['trades']['nyc_time'][0]
+    state['stat']['duration_td'] = state['trades']['utc_dt'][-1] - state['trades']['utc_dt'][0]
     state['stat']['tick_count'] += 1
     state['stat']['volume'] += tick['volume']
     state['stat']['dollars'] += tick['price'] * tick['volume']
@@ -126,7 +125,9 @@ def update_bar_state(tick: dict, state: dict, bars: list=[], thresh: dict={}) ->
     state = check_bar_thresholds(state)
 
     if state['bar_trigger'] != 'waiting':
-        new_bar = trades_to_bar(state['trades'], state['bar_trigger'])
+        # new_bar = trades_to_bar(state['trades'], state['bar_trigger'])
+        new_bar = state_to_bar(state)
+        # new_bar['state'] = state
         bars.append(new_bar)
         state = reset_state(thresh)
     else:
@@ -137,11 +138,14 @@ def update_bar_state(tick: dict, state: dict, bars: list=[], thresh: dict={}) ->
 
 class BarSampler:
     
-    def __init__(self, thresh: dict, bars: list=[]):
+    def __init__(self, thresh: dict):
         self.state = reset_state(thresh)
-        self.bars = bars
+        self.bars = []
 
     def update(self, tick: dict) -> dict:
         self.bars, self.state, new_bar = update_bar_state(tick, self.state, self.bars, self.state['thresh'])
-
         return new_bar
+
+    def reset(self):
+        self.state = reset_state(self.state['thresh'])
+        self.bars = []
