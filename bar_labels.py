@@ -2,13 +2,6 @@ import statsmodels.api as sm
 import pandas as pd
 
 
-# example loss function
-# long-FP: high
-# long-FN: low
-# neutral-FP: low
-# neutral-FN: high
-# short-FP: high
-# short-FN: low
 
 def get_trend_outcome(label_prices: pd.DataFrame) -> dict:
     if len(label_prices) < 30:

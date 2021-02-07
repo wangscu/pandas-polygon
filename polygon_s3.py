@@ -27,6 +27,7 @@ def get_s3fs_client(cached: bool=False):
                 secret=B2_SECRET_ACCESS_KEY, 
                 client_kwargs={'endpoint_url': B2_ENDPOINT_URL}
             )
+
     return s3fs
 
 
@@ -113,3 +114,22 @@ def fetch_date_df(symbol: str, date: str, tick_type: str) -> pd.DataFrame:
             path = date_df_to_file(df, symbol, date, tick_type)
 
     return df
+
+
+def fetch_clean_trades(symbol: str, date: str) -> pd.DataFrame:
+    # get raw ticks
+    t1df = fetch_date_df(symbol, date, tick_type='trades')
+    # filter ts detla
+    ts_delta = abs(t1df.sip_dt - t1df.exchange_dt) < pd.to_timedelta(3, unit='S')
+    t1df = t1df[ts_delta]
+    # fitler irregular
+    t1df = t1df[t1df.irregular == False]
+    # add local nyc time
+    t1df['nyc_dt'] = t1df['sip_dt']
+    t1df = t1df.set_index('nyc_dt').tz_localize('UTC').tz_convert('America/New_York')
+    # filter pre/post market hours
+    t1df = t1df.between_time('9:30:33', '16:11').reset_index()
+    # remove columns
+    t1df = t1df.drop(columns=['exchange_dt', 'sequence', 'trade_id', 'exchange_id', 'irregular', 'conditions'])
+    # rename columns
+    return t1df.rename(columns={"sip_dt": "utc_time", "size": "volume"})

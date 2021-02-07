@@ -38,10 +38,9 @@ def tick_rule(price: float, prev_price: float, prev_side: int=0) -> int:
     return side
 
 
-def mad_filter(ticks_df: pd.DataFrame, col: str='price', value_winlen: int=11,
+def mad_filter_df(df: pd.DataFrame, col: str='price', value_winlen: int=7,
     devations_winlen: int=333, k: int=22) -> pd.DataFrame:
 
-    df = ticks_df[ticks_df.irregular==False].copy()
     df[col+'_median'] = df[col].rolling(value_winlen, min_periods=value_winlen, center=False).median()
     df[col+'_median_diff'] = abs(df[col] - df[col+'_median'])
     df[col+'_median_diff_median'] = df[col+'_median_diff'].rolling(devations_winlen, min_periods=value_winlen, center=False).median()
@@ -50,13 +49,12 @@ def mad_filter(ticks_df: pd.DataFrame, col: str='price', value_winlen: int=11,
     df['mad_outlier'] = abs(df[col] - df[col+'_median']) > (df[col+'_median_diff_median'] * k)
     df = df.dropna()
     print(df.mad_outlier.value_counts() / df.shape[0])
-
     return df
 
 
 class MADFilter:
     
-    def __init__(self, value_winlen: int=11, deviation_winlen: int=333, k: int=22) -> float:
+    def __init__(self, value_winlen: int=7, deviation_winlen: int=333, k: int=22) -> float:
         self.value_winlen = value_winlen
         self.deviation_winlen = deviation_winlen
         self.k = k
@@ -68,22 +66,19 @@ class MADFilter:
         self.values.append(next_value)
         self.values = self.values[-self.value_winlen:]  # only keep winlen
         self.value_median = np.median(self.values)
-        self.value_median_diff = next_value - self.value_median
-        # self.value_median_pct_change = self.value_median_diff / self.value_median
-        self.deviations.append(self.value_median_diff)
+        self.abs_diff = abs(next_value - self.value_median)
+        self.deviations.append(self.abs_diff)
         self.deviations = self.deviations[-self.deviation_winlen:]  # only keep winlen
         self.deviations_median = np.median(self.deviations)
         self.deviations_median = 0.005 if self.deviations_median < 0.005 else self.deviations_median  # enforce lower limit
         self.deviations_median = 0.05 if self.deviations_median > 0.05 else self.deviations_median  # enforce upper limit
         # final tick status logic
-        if len(self.values) < self.value_winlen:
+        if len(self.values) < (self.deviation_winlen / 3):
             self.status = 'mad_warmup'
-        elif abs(self.value_median_diff) > (self.deviations_median * self.k):
+        elif abs(self.abs_diff) > (self.deviations_median * self.k):
             self.status = 'mad_outlier'    
         else:
             self.status = 'mad_clean'
-
-        return self.value_median
 
 
 class JMAFilter:
@@ -94,7 +89,7 @@ class JMAFilter:
         self.power = power
         self.phase = phase
 
-    def update(self, next_value) -> float:
+    def update(self, next_value: float) -> float:
 
         if self.state is None:
             self.state = jma_starting_state(next_value)
@@ -106,7 +101,6 @@ class JMAFilter:
             power=self.power,
             phase=self.phase,
             )
-
         return self.state['jma']
 
 
@@ -211,11 +205,3 @@ def supersmoother(x: list, n: int=10) -> np.ndarray:
         ss[i] = c1 * (x[i] + x[i-1]) / 2 + c2 * ss[i-1] + c3 * ss[i-2]
 
     return ss
-
-
-def tick_df_fix(ticks_df: pd.DataFrame) -> pd.DataFrame:
-    t1df = ticks_df.set_index('sip_dt').tz_localize('UTC').tz_convert('America/New_York')
-    t1df = t1df.between_time('9:30', '16:00').reset_index()
-    t1df = t1df.drop(columns=['exchange_dt'])
-    t1df = t1df.rename(columns={"sip_dt": "nyc_time"})
-    return t1df

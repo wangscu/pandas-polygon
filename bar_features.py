@@ -12,6 +12,10 @@ def trades_to_bar(ticks: pd.DataFrame, bar_trigger: str='fixed') -> dict:
     bar['open_at'] = ticks['utc_dt'].iloc[0]
     bar['close_at'] = ticks['utc_dt'].iloc[-1]
     bar['duration_td'] = bar['close_at'] - bar['open_at']
+    # volume
+    bar['tick_count'] = ticks.shape[0]
+    bar['volume'] = ticks.volume.sum()
+    bar['dollars'] = (ticks.volume * ticks.price).sum()
     # price
     bar['price_open'] = ticks.price.values[0]
     bar['price_close'] = ticks.price.values[-1]
@@ -45,9 +49,6 @@ def trades_to_bar(ticks: pd.DataFrame, bar_trigger: str='fixed') -> dict:
     bar['jma_wmean'] = dsw.mean
     bar['jma_wstd'] = dsw.std
     # tick/vol/dollar/imbalance
-    bar['tick_count'] = ticks.shape[0]
-    bar['volume'] = ticks.volume.sum()
-    bar['dollars'] = (ticks.volume * ticks.price).sum()
     bar['tick_imbalance'] = ticks.side.sum()
     bar['volume_imbalance'] = (ticks.volume * ticks.side).sum()
     bar['dollar_imbalance'] = (ticks.volume * ticks.price * ticks.side).sum()
@@ -66,6 +67,10 @@ def state_to_bar(state: dict) -> dict:
     new_bar['open_at'] = state['trades']['utc_dt'][0]
     new_bar['close_at'] = state['trades']['utc_dt'][-1]
     new_bar['duration_td'] = new_bar['close_at'] - new_bar['open_at']
+    # volume
+    new_bar['tick_count'] = state['stat']['tick_count']
+    new_bar['volume'] = state['stat']['volume']
+    new_bar['dollars'] = state['stat']['dollars']
     # price
     new_bar['price_open'] = state['trades']['price'][0]
     new_bar['price_close'] = state['trades']['price'][-1]
@@ -99,9 +104,6 @@ def state_to_bar(state: dict) -> dict:
     new_bar['jma_wmean'] = dsw.mean
     new_bar['jma_wstd'] = dsw.std
     # tick/vol/dollar/imbalance
-    new_bar['tick_count'] = state['stat']['tick_count']
-    new_bar['volume'] = state['stat']['volume']
-    new_bar['dollars'] = state['stat']['dollars']
     new_bar['tick_imbalance'] = state['stat']['tick_imbalance']
     new_bar['volume_imbalance'] = state['stat']['volume_imbalance']
     new_bar['dollar_imbalance'] = state['stat']['dollar_imbalance']
